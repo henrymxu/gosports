@@ -4,7 +4,7 @@
 
 ### Schedule 
 
-url: /schedule/{sport}
+url: `/schedule/{sport}`
 
 - sport: [mlb, nba, nfl, nhl]
 
@@ -14,16 +14,20 @@ parameters:
 
 returns:
 
-- array of games: [{home: <string>, away: <string>, date: <date>, venue: <string>}, {}, ...] 
+- array of games:
 
+example:
+
+````
 {
     content: [
         {
-            gameId: <string>,
+            id: <string>,
             date: <2006-01-02T15:04:05Z07:00>,
             status: [Scheduled, Active, Complete],
-            period: <int>
-            time: <string> //Time remaining in period/quarter, or number of outs in the inning
+            statusCode: <int>,
+            period: <int>,
+            time: <string>, //Time remaining in period/quarter, or number of outs in the inning
             home: {
                 teamId: <string>,
                 name: <string>,
@@ -42,10 +46,11 @@ returns:
         }
     ]
 }
+````
 
 ### Play By Play
 
-url: /playbyplay/{sport}
+url: `/playbyplay/{sport}`
 
 - sport: [mlb, nba, nfl, nhl]
 
@@ -53,15 +58,92 @@ parameters:
 
 - gameId (_Required_):
 
-returns: 
+returns (internal structure changes based on sport): 
 
-## NHL
+- base information (diff)
+
+- array of plays (diff)
+
+example:
+
+````
+{
+    game: {
+        status: {},
+        home: {},
+        away: {}
+    }, 
+    players: {
+        home: [],
+        away: []
+    },
+    plays: []
+}
+````
+
+#### NHL 
+
+````
+{
+    game: {
+        status: {
+            period: <int>,
+            periodTimeRemaining: <int>
+        },
+        home: {
+            name: <string>,
+            score: <string>,
+            shots: <int>
+        },
+        away: {
+            name: <string>,
+            score: <string>,
+            shots: <int>
+        }
+    }, 
+    players: {
+        home: [
+            {
+                id: <int>,
+                onIceDuration: <int>,
+                name: <string>,
+                number: <string>,
+                position: <string>
+            }, ...
+        ],
+        away: [
+            {
+                id: <int>,
+                onIceDuration: <int>,
+                name: <string>,
+                number: <string>,
+                position: <string>
+            }, ...
+        ]
+    }
+    plays: [
+        {
+            description: <string>,
+            typeId: <string>
+            periodTime: <string>
+            coordinates: {
+                x: <int>,
+                y: <int>
+            }
+        }, ...
+    ],
+}
+````
+
+## Official API Documentation
+
+### NHL
 
 Base: https://statsapi.web.nhl.com/api/v1/
 
 - Schedule:
 
-    - Endpoint: schedule
+    - Endpoint: `schedule`
     
     - Parameters: [expand (schedule.broadcasts, schedule.linescore, schedule.ticket), teamId, date (yyyy-mm-dd), startDate, endDate]
     
@@ -69,7 +151,7 @@ Base: https://statsapi.web.nhl.com/api/v1/
 
 - Play by Play: 
 
-    - Endpoint: game/%d/feed/live
+    - Endpoint: `game/%d/feed/live`
     
     - Parameters: [gamePk]
     
@@ -77,19 +159,19 @@ Base: https://statsapi.web.nhl.com/api/v1/
     
 - Play by Play Diff: 
 
-    - Endpoint: game/%d/feed/live/diffPatch
+    - Endpoint: `game/%d/feed/live/diffPatch`
     
     - Parameters: [gamePk, startTimecode (yyyymmdd_hhmmss)]
     
     - Example: https://statsapi.web.nhl.com/api/v1/game/2018020150/feed/live/diffPatch?startTimecode=20181027_1600
 
-## NBA
+### NBA
 
 Base: https://stats.nba.com/stats/
 
 - Schedule:
 
-    - Endpoint: scoreboardv2
+    - Endpoint: `scoreboardv2`
     
     - Parameters: [GameDate (yyyy-mm-dd), LeagueID, DayOffset]
     
@@ -97,19 +179,19 @@ Base: https://stats.nba.com/stats/
 
 - Play by Play: 
 
-    - Endpoint: playbyplayv2
+    - Endpoint: `playbyplayv2`
     
     - Parameters: [GameID, StartPeriod (1 - 4), EndPeriod]
     
     - Example: https://stats.nba.com/stats/playbyplayv2/?GameID=0021900054&StartPeriod=1&EndPeriod=4
 
-## NFL
+### NFL
 
 Base: https://www.nfl.com/
 
 - Schedule:
 
-    - Endpoint: ajax/scorestrip && feeds-rs/currentWeek.json
+    - Endpoint: `ajax/scorestrip` && `feeds-rs/currentWeek.json`
     
     - Parameters: [season (yyyy), seasonType (PRE, REG, POST), week]
     
@@ -117,19 +199,19 @@ Base: https://www.nfl.com/
 
 - Play by Play: 
 
-    - Endpoint: liveupdate/game-center/%s/%s_gtd.json
+    - Endpoint: `liveupdate/game-center/%s/%s_gtd.json`
     
     - Parameters: [eid, eid]
     
     - Example: https://www.nfl.com/liveupdate/game-center/2019103100/2019103100_gtd.json
     
-## MLB
+### MLB
 
 Base: https://statsapi.mlb.com/api/v1.1/
 
 - Schedule (API v1):
 
-    - Endpoint: schedule/
+    - Endpoint: `schedule`
     
     - Parameters: [scheduleType, eventTypes, hydrate (decisions, probablePitcher(note), linescore), teamId, leagueId, sportId, gamePk, gamePks, venueIds, gameTypes, date (yyyy-mm-dd), startDate, endDate, opponentId, fields]
     
@@ -137,7 +219,7 @@ Base: https://statsapi.mlb.com/api/v1.1/
 
 - Play by Play (API v1.1): 
 
-    - Endpoint: game/%s/feed/live
+    - Endpoint: `game/%s/feed/live`
     
     - Parameters: [gamePk]
     

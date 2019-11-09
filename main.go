@@ -2,9 +2,10 @@ package main
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/client"
+	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/henrymxu/gosportsapi/database"
 	"github.com/henrymxu/gosportsapi/sports"
+	"github.com/henrymxu/gosportsapi/stream"
 	"log"
 	"net/http"
 	"time"
@@ -13,14 +14,20 @@ import (
 func main() {
 	databaseClient := database.MongoClient{}
 	databaseClient.Initialize("mongodb://localhost:27017")
-	websocketServer := client.CreateClientServer()
+	websocketServer := websocket.CreateWebsocketServer()
 	sportsInstance := sports.InitializeSports()
 
+	databaseServer := database.CreateDatabaseServer(&databaseClient)
+	streamServer := stream.CreateStreamServer(websocketServer, sportsInstance, databaseServer.GetDatabaseTickChannel())
+
+	router := mux.NewRouter()
+
 	server := server{
-		websocketServer,
-		database.CreateDatabaseServer(&databaseClient),
-		sportsInstance,
-		mux.NewRouter(),
+		stream: streamServer,
+		client: websocketServer,
+		db:     databaseServer,
+		sports: sportsInstance,
+		router: router,
 	}
 
 	server.routes()

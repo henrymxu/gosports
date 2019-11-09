@@ -4,15 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/client"
+	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/henrymxu/gosportsapi/database"
 	"github.com/henrymxu/gosportsapi/sports"
+	"github.com/henrymxu/gosportsapi/stream"
 	"github.com/ngaut/log"
 	"net/http"
+	"net/url"
+	"strconv"
 )
 
 type server struct {
-	client *client.Server
+	stream *stream.Server
+	client *websocket.Server
 	db     *database.Server
 	sports *sports.Sports
 	router *mux.Router
@@ -23,7 +27,11 @@ type httpError struct {
 	string string
 }
 
-type WebsocketHandlerFunc func(*client.WebsocketClient, http.ResponseWriter, *http.Request)
+type WebsocketHandlerFunc func(*websocket.Client, http.ResponseWriter, *http.Request)
+
+type ValidateParameter func(map[string]string) (interface{}, *httpError)
+
+type ValidateQuery func(url.Values) (interface{}, *httpError)
 
 func (s *server) handleAbout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -35,11 +43,12 @@ func (s *server) handleSchedule() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		query := r.URL.Query()
-		sport, httpError := s.parseSport(params)
-		if httpError != nil {
-			http.Error(w, httpError.string, httpError.code)
+		sportInterface, err := parseSport(params)
+		if err != nil {
+			logHttpError(w, err)
 			return
 		}
+		sport := s.sports.ParseSportId(convertInterfaceToInt(sportInterface))
 		result := sport.Schedule(query)
 		games := result["content"].([]map[string]interface{})
 		for _, game := range games {
@@ -50,39 +59,27 @@ func (s *server) handleSchedule() http.HandlerFunc {
 }
 
 func (s *server) handlePlayByPlay() WebsocketHandlerFunc {
-	return func(ws *client.WebsocketClient, w http.ResponseWriter, r *http.Request) {
+	return func(ws *websocket.Client, w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		query := r.URL.Query()
-		sport, httpError := s.parseSport(params)
-		if httpError != nil {
-			log.Errorf("Logging http.Error: %s", httpError.string)
-			http.Error(w, httpError.string, httpError.code)
-			return
-		}
-		gameId := query.Get("gameId")
-		if gameId == "" {
-			//Missing gameId
-			log.Errorf("Logging http.Error: %s", http.StatusText(http.StatusUnprocessableEntity))
-			http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
-			return
-		}
-		// get channel from sport with gameId
-		pbpChannel := make(chan client.Message)
-		// channel should already be registered
-		s.client.RegisterChannelChannel <- &pbpChannel
-		// register client to channel
-		for !s.client.RegisterClientToWriteChannel(ws, &pbpChannel) {
+		sportInterface, _ := parseSport(params)
+		sport := s.sports.ParseSportId(convertInterfaceToInt(sportInterface))
+		gameIdInterface, _ := parseGameId(query)
+		gameId := convertInterfaceToInt(gameIdInterface)
 
+		pbpChannel := s.stream.GetGameChannel(sport, gameId)
+		s.client.RegisterClientToWriteChannel(ws, pbpChannel)
+		log.Debugf("Requesting PlayByPlay for %d, %s", gameId, query.Get("date"))
+		result := sport.PlayByPlay(query)
+		message := websocket.Message {
+			Type: "Initial PlaybyPlay",
+			Contents: result,
 		}
-		// maybe ask to populate previous plays?
-		message := client.Message{
-			Contents: map[string]interface{}{"sport": sport, "sportId": params["sport"], "gameId": gameId},
-		}
-		pbpChannel <- message
+		s.client.WriteToClient(ws, message)
 	}
 }
 
-func (s *server) parseSport(params map[string]string) (sports.Sport, *httpError) {
+func parseSport(params map[string]string) (interface{}, *httpError) {
 	sportString, ok := params["sport"]
 	if !ok {
 		return nil, &httpError{
@@ -90,14 +87,29 @@ func (s *server) parseSport(params map[string]string) (sports.Sport, *httpError)
 			"Missing required {sport} parameter",
 		}
 	}
-	sport := s.sports.ParseSportString(sportString)
-	if sport == nil {
+	sport := sports.ParseSportString(sportString)
+	if sport == -1 {
 		return nil, &httpError{
-			http.StatusUnprocessableEntity,
-			http.StatusText(http.StatusUnprocessableEntity),
+			http.StatusBadRequest,
+			"Invalid {sport} parameter",
 		}
 	}
 	return sport, nil
+}
+
+func convertInterfaceToInt(iface interface{}) int {
+	return iface.(int)
+}
+
+func parseGameId(query url.Values) (interface{}, *httpError) {
+	gameId, err := strconv.Atoi(query.Get("gameId"))
+	if err != nil {
+		return 0, &httpError{
+			http.StatusBadRequest,
+			"Missing required {gameId} query",
+		}
+	}
+	return gameId, nil
 }
 
 func (s *server) websocketUpgrade(h WebsocketHandlerFunc) http.HandlerFunc {
@@ -109,6 +121,30 @@ func (s *server) websocketUpgrade(h WebsocketHandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *server) checkValidQueries(h http.HandlerFunc, paramsToValidate []ValidateParameter, queriesToValidate []ValidateQuery) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params := mux.Vars(r)
+		query := r.URL.Query()
+		for _, validator := range paramsToValidate {
+			if _, err := validator(params); err != nil {
+				logHttpError(w, err)
+				return
+			}
+		}
+		for _, validator := range queriesToValidate {
+			if _, err := validator(query); err != nil {
+				logHttpError(w, err)
+				return
+			}
+		}
+		h(w, r)
+	}
+}
+
+func logHttpError(w http.ResponseWriter, error *httpError) {
+	log.Errorf("Logging http.Error: %s", error.string)
+	http.Error(w, error.string, error.code)
+}
 /*
 
 func (s *server) handleGreeting(format string) http.HandlerFunc {
