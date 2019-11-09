@@ -2,8 +2,8 @@ package stream
 
 import (
 	"fmt"
-	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/henrymxu/gosportsapi/sports"
+	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/ngaut/log"
 )
 

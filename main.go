@@ -2,10 +2,10 @@ package main
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/henrymxu/gosportsapi/database"
 	"github.com/henrymxu/gosportsapi/sports"
 	"github.com/henrymxu/gosportsapi/stream"
+	"github.com/henrymxu/gosportsapi/websocket"
 	"log"
 	"net/http"
 	"time"

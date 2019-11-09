@@ -31,7 +31,7 @@ func (n nhl) PlayByPlay(params url.Values) map[string]interface{} {
 	id, _ := strconv.Atoi(params.Get("gameId"))
 	time, _ := CreateDateFromString(params.Get("date"))
 	liveData, _ := n.client.GetGameLiveDataDiff(id, time)
-	log.Debugf("Retrieved LiveData from server")
+	log.Debugf("Retrieved LiveData from server for game %d", id)
 	return buildResultFromLiveData(&liveData)
 }
 

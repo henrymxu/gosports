@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/henrymxu/gosportsapi/database"
 	"github.com/henrymxu/gosportsapi/sports"
 	"github.com/henrymxu/gosportsapi/stream"
+	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/ngaut/log"
 	"net/http"
 	"net/url"
@@ -24,7 +24,7 @@ type server struct {
 
 type httpError struct {
 	code int
-	string string
+	text string
 }
 
 type WebsocketHandlerFunc func(*websocket.Client, http.ResponseWriter, *http.Request)
@@ -69,10 +69,9 @@ func (s *server) handlePlayByPlay() WebsocketHandlerFunc {
 
 		pbpChannel := s.stream.GetGameChannel(sport, gameId)
 		s.client.RegisterClientToWriteChannel(ws, pbpChannel)
-		log.Debugf("Requesting PlayByPlay for %d, %s", gameId, query.Get("date"))
 		result := sport.PlayByPlay(query)
 		message := websocket.Message {
-			Type: "Initial PlaybyPlay",
+			Type: "initial playbyplay",
 			Contents: result,
 		}
 		s.client.WriteToClient(ws, message)
@@ -142,18 +141,18 @@ func (s *server) checkValidQueries(h http.HandlerFunc, paramsToValidate []Valida
 }
 
 func logHttpError(w http.ResponseWriter, error *httpError) {
-	log.Errorf("Logging http.Error: %s", error.string)
-	http.Error(w, error.string, error.code)
+	log.Errorf("Logging http.Error: %s", error.text)
+	http.Error(w, error.text, error.code)
 }
 /*
 
-func (s *server) handleGreeting(format string) http.HandlerFunc {
+func (s *server) handleGreeting(format text) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, format, "World")
 	}
 }
 
-func (s *server) handleTemplate(files string...) http.HandlerFunc {
+func (s *server) handleTemplate(files text...) http.HandlerFunc {
 	var (
 		init sync.Once
 		tpl  *template.Template

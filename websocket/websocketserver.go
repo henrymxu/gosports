@@ -12,8 +12,8 @@ type Server struct {
 	ClientMessageChannel   chan Message         // Used for messages received from clients
 	RegisterChannelChannel chan RegisterChannel // Used to register new available channels
 	quitChannel            chan *Client
-	clients                map[*Client]bool //TODO: remove?
-	writeMessageChannels   map[*chan Message][]*Client //TODO: threadsafe
+	clients                map[*Client]bool            // TODO: remove?
+	writeMessageChannels   map[*chan Message][]*Client // TODO: threadsafe
 	upgrader               websocket.Upgrader
 }
 
@@ -27,7 +27,6 @@ type Client struct {
 	Channel *chan Message   // TODO: not used (Channel the websocket is registered to (Only 1 Channel is supported))
 }
 
-// Define our message object
 type Message struct {
 	Client   *Client // Where the message came from
 	Type     string
@@ -48,10 +47,11 @@ func CreateWebsocketServer() *Server {
 	go server.closeWebsocket()
 	go server.registerNewChannels()
 
+	// TODO: If reading from clients is required, some sort of routing is needed
 	go func() {
 		for {
 			message := <-server.ClientMessageChannel
-			log.Debugf("Routing message from %s", message.Client.Socket.RemoteAddr())
+			log.Debugf("Routing message from %s with contents %v", message.Client.Socket.RemoteAddr(), message.Contents)
 		}
 	}()
 
@@ -95,11 +95,9 @@ func (s *Server) registerNewChannels() {
 		registerChannel := <-s.RegisterChannelChannel
 		channel := registerChannel.Channel
 		if registerChannel.Action {
-			log.Debugf("Registered new channel %v", channel)
 			s.writeMessageChannels[channel] = make([]*Client, 0)
 			go s.writeToClients(channel)
 		} else {
-			log.Debugf("Deleting channel %v", channel)
 			close(*channel)
 			delete(s.writeMessageChannels, channel)
 		}
@@ -142,12 +140,13 @@ func (s *Server) listenToClient(client *Client) {
 			log.Errorf("Error reading json: %s", err)
 			continue
 		}
-		// Broadcast message
+
 		m := Message{
 			Client:   client,
+			Type:     "from client",
 			Contents: jsonMessage,
 		}
-		//log.Debugf("Got message from client: %#v", m)
+		log.Debugf("Got message from client: %#v", m)
 
 		s.ClientMessageChannel <- m
 
@@ -164,7 +163,9 @@ func (s *Server) upgradeToWebsocket(w http.ResponseWriter, r *http.Request) *Cli
 	if err != nil {
 		http.Error(w, "Could not open websocket connection", http.StatusBadRequest)
 		log.Fatal(err)
+		return nil
 	}
+
 	log.Debugf("Registering a client at %s", socket.RemoteAddr().String())
 	client := Client{
 		Socket: socket,
@@ -172,7 +173,7 @@ func (s *Server) upgradeToWebsocket(w http.ResponseWriter, r *http.Request) *Cli
 	s.clients[&client] = true
 
 	client.Socket.SetCloseHandler(func(code int, text string) error {
-		log.Debug("Client requesting close")
+		log.Debugf("Client at %s requesting close", client.Socket.RemoteAddr())
 		s.quitChannel <- &client
 		return nil
 	})
