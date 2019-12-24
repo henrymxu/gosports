@@ -3,56 +3,46 @@ package sports
 import (
 	"fmt"
 	"github.com/henrymxu/gonhl"
-	"github.com/ngaut/log"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type nhl struct {
 	client *gonhl.Client
 }
 
-func (n nhl) Name() string {
+func InitNHL() *nhl {
+	return &nhl{
+		client: gonhl.NewClient(),
+	}
+}
+
+func (n *nhl) Name() string {
 	return "nhl"
 }
 
-func (n nhl) Schedule(params url.Values) map[string]interface{} {
-	if n.client == nil {
-		n.client = gonhl.NewClient()
-	}
+func (n *nhl) Schedule(params url.Values) map[string]interface{} {
 	schedule, _ := n.client.GetSchedule(buildScheduleParamsFromParams(params))
-	return buildResultFromSchedule(&schedule)
+	return buildResultFromNHLSchedule(&schedule)
 }
 
-func (n nhl) PlayByPlay(params url.Values) map[string]interface{} {
-	if n.client == nil {
-		n.client = gonhl.NewClient()
-	}
+func (n *nhl) PlayByPlay(params url.Values) map[string]interface{} {
 	id, _ := strconv.Atoi(params.Get("gameId"))
-	time, _ := CreateDateFromString(params.Get("date"))
-	liveData, _ := n.client.GetGameLiveDataDiff(id, time)
-	log.Debugf("Retrieved LiveData from server for game %d", id)
-	return buildResultFromLiveData(&liveData)
+	liveData, _ := n.client.GetGameLiveData(id)
+	lastCheck, _ := CreateDateFromDetailedString(params.Get("date"))
+	result := buildResultFromLiveData(&liveData, &lastCheck)
+	return result
 }
 
-func (n nhl) CheckActiveGames(schedule map[string]interface{}) []Game {
-	scheduledGames := schedule["content"].([]map[string]interface{})
-	games := make([]Game, 0, len(scheduledGames))
-	for _, scheduledGame := range scheduledGames {
-		status := 0
-		statusCode := scheduledGame["statusCode"].(int)
-		if statusCode >= 5 { // 5 6 7 states
-			status = 2
-		} else if statusCode > 2 { // 3 4 states
-			status = 1
-		}
-		game := Game {
-			scheduledGame["id"].(int),
-			status,
-		}
-		games = append(games, game)
+func (n *nhl) ParseScheduleState(statusCode int) ScheduleState {
+	status := Preview
+	if statusCode >= 5 { // 5 6 7 states
+		status = Complete
+	} else if statusCode > 2 { // 3 4 states
+		status = Live
 	}
-	return games
+	return status
 }
 
 func buildScheduleParamsFromParams(params url.Values) *gonhl.ScheduleParams {
@@ -70,11 +60,15 @@ func buildScheduleParamsFromParams(params url.Values) *gonhl.ScheduleParams {
 	return scheduleParams
 }
 
-func buildResultFromLiveData(liveData *gonhl.LiveData) map[string]interface{} {
+func buildResultFromLiveData(liveData *gonhl.LiveData, lastUpdate *time.Time) map[string]interface{} {
 	result := make(map[string]interface{})
 	result["game"] = buildGameFromLiveData(liveData)
-	result["plays"] = buildPlaysFromPlays(&liveData.Plays)
+	result["plays"] = buildPlaysFromPlays(&liveData.Plays, lastUpdate)
 	result["players"] = buildPlayersFromBoxScore(&liveData.Boxscore)
+	metadata := make(map[string]interface{})
+	metadata["state"] = buildStateFromLiveData(liveData)
+	metadata["lastCheck"] = time.Now().Unix()
+	result["metadata"] = metadata
 	return result
 }
 
@@ -83,15 +77,22 @@ func buildGameFromLiveData(liveData *gonhl.LiveData) map[string]interface{} {
 	game["home"] = buildTeamFromLinescore(&liveData.Linescore.Teams.Home)
 	game["away"] = buildTeamFromLinescore(&liveData.Linescore.Teams.Away)
 	game["status"] = buildStatusFromLinescore(&liveData.Linescore)
-
 	return game
+}
+
+func buildStateFromLiveData(liveData *gonhl.LiveData) ScheduleState {
+	status := Live
+	resultEvent := liveData.Plays.CurrentPlay.Result.EventTypeID
+	if resultEvent == "GAME_OFFICIAL" || resultEvent == "GAME_END" {
+		status = Complete
+	}
+	return status
 }
 
 func buildStatusFromLinescore(linescore *gonhl.Linescore) map[string]interface{} {
 	status := make(map[string]interface{})
 	status["period"] = linescore.CurrentPeriod
 	status["periodTimeRemaining"] = linescore.CurrentPeriodTimeRemaining
-
 	return status
 }
 
@@ -100,19 +101,20 @@ func buildTeamFromLinescore(linescoreTeam *gonhl.LinescoreTeam) map[string]inter
 	team["name"] = linescoreTeam.Team.Name
 	team["score"] = linescoreTeam.Goals
 	team["shots"] = linescoreTeam.ShotsOnGoal
-
 	return team
 }
 
-func buildPlaysFromPlays(playsData *gonhl.Plays) []map[string]interface{} {
+func buildPlaysFromPlays(playsData *gonhl.Plays, lastCheck *time.Time) []map[string]interface{} {
 	plays := make([]map[string]interface{}, 0, len(playsData.AllPlays))
 	for _, playData := range playsData.AllPlays {
-		play := make(map[string]interface{})
-		play["description"] = playData.Result.Description
-		play["typeId"] = playData.Result.EventTypeID
-		play["periodTime"] = playData.About.PeriodTime
-		play["coordinates"] = map[string]int{"x": playData.Coordinates.X, "y": playData.Coordinates.Y}
-		plays = append(plays, play)
+		if lastCheck == nil || playData.About.DateTime.Sub(*lastCheck) > 0 {
+			play := make(map[string]interface{})
+			play["description"] = playData.Result.Description
+			play["typeId"] = playData.Result.EventTypeID
+			play["periodTime"] = playData.About.PeriodTime
+			play["coordinates"] = map[string]float64{"x": playData.Coordinates.X, "y": playData.Coordinates.Y}
+			plays = append(plays, play)
+		}
 	}
 	return plays
 }
@@ -124,7 +126,7 @@ func buildPlayersFromBoxScore(boxscore *gonhl.Boxscore) map[string]interface{} {
 	return players
 }
 
-func buildPlayersFromTeam(team gonhl.BoxscoreTeam) []map[string]interface{} {
+	func buildPlayersFromTeam(team gonhl.BoxscoreTeam) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(team.OnIcePlus))
 	for _, onIceSkater := range team.OnIcePlus {
 		skater := make(map[string]interface{})
@@ -141,7 +143,7 @@ func buildPlayersFromTeam(team gonhl.BoxscoreTeam) []map[string]interface{} {
 	return result
 }
 
-func buildResultFromSchedule(schedule *gonhl.Schedule) map[string]interface{} {
+func buildResultFromNHLSchedule(schedule *gonhl.Schedule) map[string]interface{} {
 	result := make(map[string]interface{})
 	result["content"] = []string{}
 	if len(schedule.Dates) == 0 {
@@ -152,13 +154,13 @@ func buildResultFromSchedule(schedule *gonhl.Schedule) map[string]interface{} {
 	for _, game := range games {
 		resultGame := make(map[string]interface{})
 		resultGame["id"] = game.GamePk
-		resultGame["date"] = CreateStringFromDate(game.GameDate)
+		resultGame["date"] = CreateDetailedStringFromDate(game.GameDate)
 		resultGame["status"] = game.Status.AbstractGameState
 		resultGame["statusCode"] = game.Status.CodedGameState
 		resultGame["period"] = game.Linescore.CurrentPeriod
 		resultGame["time"] = game.Linescore.CurrentPeriodTimeRemaining
-		resultGame["home"] = parseTeam(game.Teams.Home)
-		resultGame["away"] = parseTeam(game.Teams.Away)
+		resultGame["home"] = parseNHLTeam(game.Teams.Home)
+		resultGame["away"] = parseNHLTeam(game.Teams.Away)
 		resultGame["venue"] = game.Venue.Name
 		resultGames = append(resultGames, resultGame)
 	}
@@ -166,7 +168,7 @@ func buildResultFromSchedule(schedule *gonhl.Schedule) map[string]interface{} {
 	return result
 }
 
-func parseTeam(team gonhl.GameTeam) map[string]interface{} {
+func parseNHLTeam(team gonhl.GameTeam) map[string]interface{} {
 	resultTeam := make(map[string]interface{})
 	resultTeam["teamId"] = team.Team.ID
 	resultTeam["name"] = team.Team.Name

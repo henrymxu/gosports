@@ -11,6 +11,7 @@ import (
 type Server struct {
 	ClientMessageChannel   chan Message         // Used for messages received from clients
 	RegisterChannelChannel chan RegisterChannel // Used to register new available channels
+	ClientMessageReceivers map[string]*chan Message // Used by servers to register the handler for message types
 	quitChannel            chan *Client
 	clients                map[*Client]bool            // TODO: remove?
 	writeMessageChannels   map[*chan Message][]*Client // TODO: threadsafe
@@ -38,13 +39,14 @@ func CreateWebsocketServer() *Server {
 	server := Server{
 		ClientMessageChannel:   make(chan Message),
 		RegisterChannelChannel: make(chan RegisterChannel),
+		ClientMessageReceivers: make(map[string]*chan Message),
 		quitChannel:            make(chan *Client),
 		clients:                make(map[*Client]bool),
 		writeMessageChannels:   make(map[*chan Message][]*Client),
 		upgrader:               websocket.Upgrader{},
 	}
 
-	go server.closeWebsocket()
+	go server.websocketCloserHandler()
 	go server.registerNewChannels()
 
 	// TODO: If reading from clients is required, some sort of routing is needed
@@ -52,6 +54,11 @@ func CreateWebsocketServer() *Server {
 		for {
 			message := <-server.ClientMessageChannel
 			log.Debugf("Routing message from %s with contents %v", message.Client.Socket.RemoteAddr(), message.Contents)
+			handler := message.Contents["endpoint"].(string)
+
+			if receiver, ok := server.ClientMessageReceivers[handler]; ok {
+				*receiver<-message
+			}
 		}
 	}()
 
@@ -70,14 +77,17 @@ func (s *Server) BaseWebsocketHandler(w http.ResponseWriter, r *http.Request) *C
 	return conn
 }
 
-func (s *Server) WriteToClient(client *Client, message Message) {
+func (s *Server) WriteToClient(client *Client, message Message) bool {
 	log.Debugf("Writing to a client at %s with message type: %s", client.Socket.RemoteAddr().String(), message.Type)
 	err := client.Socket.WriteJSON(message)
 	if err != nil {
 		if !s.checkClientClosed(client, err) {
-			log.Errorf("Error reading json: %s", err)
+			log.Errorf("Error writing json: %s", err)
+			s.quitChannel<-client
+			return false
 		}
 	}
+	return true
 }
 
 func (s *Server) RegisterClientToWriteChannel(client *Client, writeChannel *chan Message) bool {
@@ -86,6 +96,15 @@ func (s *Server) RegisterClientToWriteChannel(client *Client, writeChannel *chan
 		return false
 	}
 	s.writeMessageChannels[writeChannel] = append(s.writeMessageChannels[writeChannel], client)
+	return true
+}
+
+func (s *Server) RegisterClientMessageReceiver(endpoint string, channel *chan Message) bool {
+	if _, ok := s.ClientMessageReceivers[endpoint]; ok {
+		log.Errorf("Receiver with key %s has already been registered", endpoint)
+		return false
+	}
+	s.ClientMessageReceivers[endpoint] = channel
 	return true
 }
 
@@ -105,8 +124,8 @@ func (s *Server) registerNewChannels() {
 }
 
 // Goroutine function
-// closeWebsocket is to be invoked when server wants to terminate a websocket
-func (s *Server) closeWebsocket() {
+// websocketCloserHandler is to be invoked when server wants to terminate a websocket
+func (s *Server) websocketCloserHandler() {
 	for {
 		client := <-s.quitChannel
 		log.Debugf("Closing websocket %s", client.Socket.RemoteAddr())
@@ -120,9 +139,19 @@ func (s *Server) closeWebsocket() {
 func (s *Server) writeToClients(channel *chan Message) {
 	for {
 		msg := <-*channel
-		for _, client := range s.writeMessageChannels[channel] {
-			s.WriteToClient(client, msg)
+		indicesToRemove := make([]int, 0)
+		for index, client := range s.writeMessageChannels[channel] {
+			ok := s.WriteToClient(client, msg)
+			if !ok {
+				indicesToRemove = append(indicesToRemove, index)
+			}
 		}
+		slice := s.writeMessageChannels[channel]
+		for _, index := range indicesToRemove {
+			slice[index] = slice[len(slice) - 1]
+			slice = slice[:len(slice) - 1]
+		}
+		s.writeMessageChannels[channel] = slice
 	}
 }
 

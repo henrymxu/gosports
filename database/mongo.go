@@ -26,7 +26,10 @@ type MongoCursor struct {
 // Initialize initializes the mongo client at the provided address.
 // Uses background context
 func (m *MongoClient) Initialize(address string) {
-	client, _ := mongo.Connect(context.Background(), address)
+	client, err := mongo.Connect(context.Background(), address)
+	if err != nil {
+		log.Debug("Failed to initialize database")
+	}
 	m.Client = client
 }
 

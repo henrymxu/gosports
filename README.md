@@ -77,7 +77,11 @@ example:
         home: [],
         away: []
     },
-    plays: []
+    plays: [],
+    metadata: {
+        state: <int>,
+        lastCheck: <long>,
+    }
 }
 ````
 
@@ -132,6 +136,10 @@ example:
             }
         }, ...
     ],
+    metadata: {
+        state: <int>,
+        lastCheck: <long>,
+    }
 }
 ````
 
@@ -169,6 +177,8 @@ Base: https://statsapi.web.nhl.com/api/v1/
 
 Base: https://stats.nba.com/stats/
 
+BaseV2: http://data.nba.com/data/5s/json/cms/noseason/
+
 - Schedule:
 
     - Endpoint: `scoreboardv2`
@@ -184,7 +194,23 @@ Base: https://stats.nba.com/stats/
     - Parameters: [GameID, StartPeriod (1 - 4), EndPeriod]
     
     - Example: https://stats.nba.com/stats/playbyplayv2/?GameID=0021900054&StartPeriod=1&EndPeriod=4
+    
+- ScheduleV2: 
 
+    - Endpoint: `scoreboard/%s/games.json`
+    
+    - Parameters: [Date (yyyymmdd)]
+    
+    - Example: http://data.nba.com/data/5s/json/cms/noseason/scoreboard/20191120/games.json
+
+- Play by Play V2:
+
+    - Endpoint: `game/%s/%s/pbp_all.json`
+    
+    - Parameters: [Date (yyyymmmdd), GameID]
+    
+    - Example: http://data.nba.com/data/5s/json/cms/noseason/game/20191118/0021900189/pbp_all.json
+    
 ### NFL
 
 Base: https://www.nfl.com/

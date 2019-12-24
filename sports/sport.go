@@ -2,23 +2,33 @@ package sports
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const dateLayout = "2006-01-02"
-const resultDateLayout = "2006-01-02T15:04:05Z07:00"
+const DetailedDateLayout = "2006-01-02T15:04:05Z07:00"
 
 type Sports struct {
 	MLB mlb
-	NBA nba
+	NBA *nba
 	NFL nfl
-	NHL nhl
+	NHL *nhl
 }
 
-type Game struct {
-	Id int
-	Status int // 0 for preview, 1 for live, 2 for ended
+type ScheduleState int
+
+const (
+	Preview  ScheduleState = 0
+	Live     ScheduleState = 1
+	Complete ScheduleState = 2
+)
+
+type GameScheduleStatus struct {
+	Id            string
+	StartTime     time.Time
+	ScheduleState ScheduleState // 0 for preview, 1 for live, 2 for ended
 }
 
 // params[] date
@@ -26,19 +36,20 @@ type Sport interface {
 	Name() string
 	Schedule(params url.Values) map[string]interface{}
 	PlayByPlay(params url.Values) map[string]interface{}
-	CheckActiveGames(schedule map[string]interface{}) []Game
+	ParseScheduleState(statusCode int) ScheduleState
 }
 
 func InitializeSports() *Sports {
 	sports := Sports{
-		NHL: nhl{},
+		NHL: InitNHL(),
+		NBA: InitNBA(),
 	}
 
 	return &sports
 }
 
-func (s *Sports) RetrieveSportsAsList() [1]Sport {
-	return [1]Sport{s.NHL}
+func (s *Sports) RetrieveSportsAsList() [2]Sport {
+	return [2]Sport{s.NBA, s.NHL}
 }
 
 func (s *Sports) ParseSportId(sportId int) Sport {
@@ -46,7 +57,7 @@ func (s *Sports) ParseSportId(sportId int) Sport {
 	case 0:
 		//return s.MLB
 	case 1:
-		//return s.NBA
+		return s.NBA
 	case 2:
 		//return s.NFL
 	case 3:
@@ -61,7 +72,7 @@ func ParseSportString(sport string) int {
 	case "mlb":
 		//return s.MLB
 	case "nba":
-		//return s.NBA
+		return 1
 	case "nfl":
 		//return s.NFL
 	case "nhl":
@@ -70,9 +81,37 @@ func ParseSportString(sport string) int {
 	return -1
 }
 
-// CreateStringFromDate converts a time.Time object to a string representing a date with format `yyyy-mm-dd`.
-func CreateStringFromDate(date time.Time) string {
-	return date.Format(resultDateLayout)
+func CheckActiveGames(sport Sport, schedule map[string]interface{}) []GameScheduleStatus {
+	scheduledGames := schedule["content"].([]map[string]interface{})
+	games := make([]GameScheduleStatus, 0, len(scheduledGames))
+	for _, scheduledGame := range scheduledGames {
+		status := sport.ParseScheduleState(scheduledGame["statusCode"].(int))
+		date, _ := CreateDateFromDetailedString(scheduledGame["date"].(string))
+		var gameId string
+		if game, ok := scheduledGame["id"].(int); ok {
+			gameId = strconv.Itoa(game)
+		} else {
+			gameId = scheduledGame["id"].(string)
+		}
+		game := GameScheduleStatus{
+			gameId,
+			date,
+			status,
+		}
+		games = append(games, game)
+	}
+	return games
+}
+
+
+
+// CreateDetailedStringFromDate converts a time.Time object to a string representing a date with format `yyyy-mm-dd`.
+func CreateDetailedStringFromDate(date time.Time) string {
+	return date.Format(DetailedDateLayout)
+}
+
+func CreateDateFromDetailedString(dateString string) (time.Time, error) {
+	return time.Parse(DetailedDateLayout, dateString)
 }
 
 // CreateDateFromString converts a string representing a date with format `yyyy-mm-dd` to a time.Time object.

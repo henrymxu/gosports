@@ -6,16 +6,15 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/henrymxu/gosportsapi/database"
 	"github.com/henrymxu/gosportsapi/sports"
-	"github.com/henrymxu/gosportsapi/stream"
+	"github.com/henrymxu/gosportsapi/watch"
 	"github.com/henrymxu/gosportsapi/websocket"
 	"github.com/ngaut/log"
 	"net/http"
 	"net/url"
-	"strconv"
 )
 
 type server struct {
-	stream *stream.Server
+	stream *watch.Server
 	client *websocket.Server
 	db     *database.Server
 	sports *sports.Sports
@@ -53,7 +52,7 @@ func (s *server) handleSchedule() http.HandlerFunc {
 		games := result["content"].([]map[string]interface{})
 		for _, game := range games {
 			b, _ := json.MarshalIndent(game, "", "  ")
-			_, _ = fmt.Fprintf(w, "Game %s:", string(b))
+			_, _ = fmt.Fprintf(w, "GameScheduleStatus %s:", string(b))
 		}
 	}
 }
@@ -65,9 +64,8 @@ func (s *server) handlePlayByPlay() WebsocketHandlerFunc {
 		sportInterface, _ := parseSport(params)
 		sport := s.sports.ParseSportId(convertInterfaceToInt(sportInterface))
 		gameIdInterface, _ := parseGameId(query)
-		gameId := convertInterfaceToInt(gameIdInterface)
 
-		pbpChannel := s.stream.GetGameChannel(sport, gameId)
+		pbpChannel := s.stream.GetGameChannel(sport, gameIdInterface.(string))
 		s.client.RegisterClientToWriteChannel(ws, pbpChannel)
 		result := sport.PlayByPlay(query)
 		message := websocket.Message {
@@ -101,9 +99,9 @@ func convertInterfaceToInt(iface interface{}) int {
 }
 
 func parseGameId(query url.Values) (interface{}, *httpError) {
-	gameId, err := strconv.Atoi(query.Get("gameId"))
-	if err != nil {
-		return 0, &httpError{
+	gameId := query.Get("gameId")
+	if gameId == "" {
+		return "", &httpError{
 			http.StatusBadRequest,
 			"Missing required {gameId} query",
 		}
