@@ -80,7 +80,7 @@ example:
     plays: [],
     metadata: {
         state: <int>,
-        lastCheck: <long>,
+        lastCheck: <string>,
     }
 }
 ````
@@ -130,6 +130,7 @@ example:
             description: <string>,
             typeId: <string>
             periodTime: <string>
+            dateTime: <string>
             coordinates: {
                 x: <int>,
                 y: <int>
@@ -138,7 +139,7 @@ example:
     ],
     metadata: {
         state: <int>,
-        lastCheck: <long>,
+        lastCheck: <string>,
     }
 }
 ````

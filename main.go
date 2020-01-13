@@ -2,26 +2,29 @@ package main
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/database"
-	"github.com/henrymxu/gosportsapi/sports"
-	"github.com/henrymxu/gosportsapi/watch"
-	"github.com/henrymxu/gosportsapi/websocket"
+	"github.com/henrymxu/gosports/database"
+	"github.com/henrymxu/gosports/sports"
+	"github.com/henrymxu/gosports/watch"
+	"github.com/henrymxu/gosports/websocket"
 	"log"
 	"net/http"
 	"time"
 )
 
+const serverAddress = "127.0.0.1:8000"
+const databaseAddress = "mongodb://localhost:27017"
+
 func main() {
 	databaseClient := database.MongoClient{}
-	databaseClient.Initialize("mongodb://localhost:27017")
-	websocketServer := websocket.CreateWebsocketServer()
-	sportsInstance := sports.InitializeSports()
-
+	databaseClient.Initialize(databaseAddress)
 	databaseServer := database.CreateDatabaseServer(&databaseClient)
+
+	websocketServer := websocket.CreateWebsocketServer()
+
+	sportsInstance := sports.InitializeSports()
 	streamServer := watch.CreateWatchServer(websocketServer, sportsInstance)
 
 	router := mux.NewRouter()
-
 	server := server{
 		stream: streamServer,
 		client: websocketServer,
@@ -34,7 +37,7 @@ func main() {
 
 	srv := &http.Server{
 		Handler:      server.router,
-		Addr:         "127.0.0.1:8000",
+		Addr:         serverAddress,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}

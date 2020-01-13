@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/henrymxu/gosportsapi/database"
-	"github.com/henrymxu/gosportsapi/sports"
-	"github.com/henrymxu/gosportsapi/watch"
-	"github.com/henrymxu/gosportsapi/websocket"
+	"github.com/henrymxu/gosports/database"
+	"github.com/henrymxu/gosports/sports"
+	"github.com/henrymxu/gosports/watch"
+	"github.com/henrymxu/gosports/websocket"
 	"github.com/ngaut/log"
 	"net/http"
 	"net/url"
@@ -34,7 +34,7 @@ type ValidateQuery func(url.Values) (interface{}, *httpError)
 
 func (s *server) handleAbout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "About")
+		_, _ = fmt.Fprint(w, "About")
 	}
 }
 
@@ -47,12 +47,12 @@ func (s *server) handleSchedule() http.HandlerFunc {
 			logHttpError(w, err)
 			return
 		}
-		sport := s.sports.ParseSportId(convertInterfaceToInt(sportInterface))
+		sport := s.sports.ParseSportId(sportInterface.(int))
 		result := sport.Schedule(query)
 		games := result["content"].([]map[string]interface{})
 		for _, game := range games {
 			b, _ := json.MarshalIndent(game, "", "  ")
-			_, _ = fmt.Fprintf(w, "GameScheduleStatus %s:", string(b))
+			_, _ = fmt.Fprintf(w, "ScheduledGame %s:", string(b))
 		}
 	}
 }
@@ -61,8 +61,11 @@ func (s *server) handlePlayByPlay() WebsocketHandlerFunc {
 	return func(ws *websocket.Client, w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		query := r.URL.Query()
-		sportInterface, _ := parseSport(params)
-		sport := s.sports.ParseSportId(convertInterfaceToInt(sportInterface))
+		sportInterface, err := parseSport(params)
+		if err != nil {
+
+		}
+		sport := s.sports.ParseSportId((sportInterface).(int))
 		gameIdInterface, _ := parseGameId(query)
 
 		pbpChannel := s.stream.GetGameChannel(sport, gameIdInterface.(string))
@@ -92,10 +95,6 @@ func parseSport(params map[string]string) (interface{}, *httpError) {
 		}
 	}
 	return sport, nil
-}
-
-func convertInterfaceToInt(iface interface{}) int {
-	return iface.(int)
 }
 
 func parseGameId(query url.Values) (interface{}, *httpError) {
@@ -142,14 +141,8 @@ func logHttpError(w http.ResponseWriter, error *httpError) {
 	log.Errorf("Logging http.Error: %s", error.text)
 	http.Error(w, error.text, error.code)
 }
+
 /*
-
-func (s *server) handleGreeting(format text) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, format, "World")
-	}
-}
-
 func (s *server) handleTemplate(files text...) http.HandlerFunc {
 	var (
 		init sync.Once

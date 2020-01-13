@@ -9,8 +9,8 @@ import (
 )
 
 type Server struct {
-	ClientMessageChannel   chan Message         // Used for messages received from clients
-	RegisterChannelChannel chan RegisterChannel // Used to register new available channels
+	ClientMessageChannel   chan Message             // Used for messages received from clients
+	RegisterChannelChannel chan RegisterChannel     // Used to register new available channels
 	ClientMessageReceivers map[string]*chan Message // Used by servers to register the handler for message types
 	quitChannel            chan *Client
 	clients                map[*Client]bool            // TODO: remove?
@@ -25,7 +25,6 @@ type RegisterChannel struct {
 
 type Client struct {
 	Socket  *websocket.Conn // Websocket connection
-	Channel *chan Message   // TODO: not used (Channel the websocket is registered to (Only 1 Channel is supported))
 }
 
 type Message struct {
@@ -57,7 +56,7 @@ func CreateWebsocketServer() *Server {
 			handler := message.Contents["endpoint"].(string)
 
 			if receiver, ok := server.ClientMessageReceivers[handler]; ok {
-				*receiver<-message
+				*receiver <- message
 			}
 		}
 	}()
@@ -78,12 +77,12 @@ func (s *Server) BaseWebsocketHandler(w http.ResponseWriter, r *http.Request) *C
 }
 
 func (s *Server) WriteToClient(client *Client, message Message) bool {
-	log.Debugf("Writing to a client at %s with message type: %s", client.Socket.RemoteAddr().String(), message.Type)
+	///log.Debugf("Writing to a client at %s with message type: %s", client.Socket.RemoteAddr().String(), message.Type)
 	err := client.Socket.WriteJSON(message)
 	if err != nil {
 		if !s.checkClientClosed(client, err) {
 			log.Errorf("Error writing json: %s", err)
-			s.quitChannel<-client
+			s.quitChannel <- client
 			return false
 		}
 	}
@@ -139,19 +138,15 @@ func (s *Server) websocketCloserHandler() {
 func (s *Server) writeToClients(channel *chan Message) {
 	for {
 		msg := <-*channel
-		indicesToRemove := make([]int, 0)
-		for index, client := range s.writeMessageChannels[channel] {
-			ok := s.WriteToClient(client, msg)
-			if !ok {
-				indicesToRemove = append(indicesToRemove, index)
+		i := 0
+		channels := s.writeMessageChannels[channel]
+		for _, client := range s.writeMessageChannels[channel] {
+			if ok := s.WriteToClient(client, msg); ok {
+				channels[i] = client
+				i++
 			}
 		}
-		slice := s.writeMessageChannels[channel]
-		for _, index := range indicesToRemove {
-			slice[index] = slice[len(slice) - 1]
-			slice = slice[:len(slice) - 1]
-		}
-		s.writeMessageChannels[channel] = slice
+		s.writeMessageChannels[channel] = channels[:i]
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const lastCheckTimeFormat = "2006-01-02 15:04:05"
+
 type nhl struct {
 	client *gonhl.Client
 }
@@ -30,8 +32,8 @@ func (n *nhl) Schedule(params url.Values) map[string]interface{} {
 func (n *nhl) PlayByPlay(params url.Values) map[string]interface{} {
 	id, _ := strconv.Atoi(params.Get("gameId"))
 	liveData, _ := n.client.GetGameLiveData(id)
-	lastCheck, _ := CreateDateFromDetailedString(params.Get("date"))
-	result := buildResultFromLiveData(&liveData, &lastCheck)
+	lastCheckString := params.Get("date")
+	result := buildResultFromLiveData(&liveData, lastCheckString)
 	return result
 }
 
@@ -43,6 +45,10 @@ func (n *nhl) ParseScheduleState(statusCode int) ScheduleState {
 		status = Live
 	}
 	return status
+}
+
+func (n *nhl) DefaultTimeString() string {
+	return time.Now().In(time.UTC).Format(lastCheckTimeFormat)
 }
 
 func buildScheduleParamsFromParams(params url.Values) *gonhl.ScheduleParams {
@@ -60,14 +66,15 @@ func buildScheduleParamsFromParams(params url.Values) *gonhl.ScheduleParams {
 	return scheduleParams
 }
 
-func buildResultFromLiveData(liveData *gonhl.LiveData, lastUpdate *time.Time) map[string]interface{} {
+func buildResultFromLiveData(liveData *gonhl.LiveData, lastCheckString string) map[string]interface{} {
+	lastCheck, _ := time.Parse(lastCheckTimeFormat, lastCheckString)
 	result := make(map[string]interface{})
 	result["game"] = buildGameFromLiveData(liveData)
-	result["plays"] = buildPlaysFromPlays(&liveData.Plays, lastUpdate)
+	result["plays"] = buildPlaysFromPlays(&liveData.Plays, &lastCheck)
 	result["players"] = buildPlayersFromBoxScore(&liveData.Boxscore)
 	metadata := make(map[string]interface{})
 	metadata["state"] = buildStateFromLiveData(liveData)
-	metadata["lastCheck"] = time.Now().Unix()
+	metadata["lastCheck"] = liveData.Plays.CurrentPlay.About.DateTime.Format(lastCheckTimeFormat)
 	result["metadata"] = metadata
 	return result
 }
@@ -81,12 +88,13 @@ func buildGameFromLiveData(liveData *gonhl.LiveData) map[string]interface{} {
 }
 
 func buildStateFromLiveData(liveData *gonhl.LiveData) ScheduleState {
-	status := Live
 	resultEvent := liveData.Plays.CurrentPlay.Result.EventTypeID
 	if resultEvent == "GAME_OFFICIAL" || resultEvent == "GAME_END" {
-		status = Complete
+		return Complete
+	} else if resultEvent == "PERIOD_OFFICIAL" || resultEvent == "PERIOD_END" {
+		return Intermission
 	}
-	return status
+	return Live
 }
 
 func buildStatusFromLinescore(linescore *gonhl.Linescore) map[string]interface{} {
@@ -113,6 +121,7 @@ func buildPlaysFromPlays(playsData *gonhl.Plays, lastCheck *time.Time) []map[str
 			play["typeId"] = playData.Result.EventTypeID
 			play["periodTime"] = playData.About.PeriodTime
 			play["coordinates"] = map[string]float64{"x": playData.Coordinates.X, "y": playData.Coordinates.Y}
+			play["dateTime"] = playData.About.DateTime.Format(lastCheckTimeFormat)
 			plays = append(plays, play)
 		}
 	}
@@ -126,9 +135,9 @@ func buildPlayersFromBoxScore(boxscore *gonhl.Boxscore) map[string]interface{} {
 	return players
 }
 
-	func buildPlayersFromTeam(team gonhl.BoxscoreTeam) []map[string]interface{} {
-	result := make([]map[string]interface{}, 0, len(team.OnIcePlus))
-	for _, onIceSkater := range team.OnIcePlus {
+func buildPlayersFromTeam(team gonhl.BoxscoreTeam) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(team.OnIcePlus))
+	for i, onIceSkater := range team.OnIcePlus {
 		skater := make(map[string]interface{})
 		stringSkaterId := fmt.Sprintf("ID%d", onIceSkater.PlayerID)
 		skaterData := team.Players[stringSkaterId]
@@ -138,7 +147,7 @@ func buildPlayersFromBoxScore(boxscore *gonhl.Boxscore) map[string]interface{} {
 		skater["number"] = skaterData.JerseyNumber
 		skater["position"] = skaterData.Position.Abbreviation
 
-		result = append(result, skater)
+		result[i] = skater
 	}
 	return result
 }
@@ -149,9 +158,9 @@ func buildResultFromNHLSchedule(schedule *gonhl.Schedule) map[string]interface{}
 	if len(schedule.Dates) == 0 {
 		return result
 	}
-	resultGames := make([]map[string]interface{}, 0, schedule.Dates[0].TotalGames)
+	resultGames := make([]map[string]interface{}, schedule.Dates[0].TotalGames)
 	games := schedule.Dates[0].Games
-	for _, game := range games {
+	for i, game := range games {
 		resultGame := make(map[string]interface{})
 		resultGame["id"] = game.GamePk
 		resultGame["date"] = CreateDetailedStringFromDate(game.GameDate)
@@ -162,7 +171,7 @@ func buildResultFromNHLSchedule(schedule *gonhl.Schedule) map[string]interface{}
 		resultGame["home"] = parseNHLTeam(game.Teams.Home)
 		resultGame["away"] = parseNHLTeam(game.Teams.Away)
 		resultGame["venue"] = game.Venue.Name
-		resultGames = append(resultGames, resultGame)
+		resultGames[i] = resultGame
 	}
 	result["content"] = resultGames
 	return result

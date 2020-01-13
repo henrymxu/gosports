@@ -10,25 +10,22 @@ import (
 const dateLayout = "2006-01-02"
 const DetailedDateLayout = "2006-01-02T15:04:05Z07:00"
 
-type Sports struct {
-	MLB mlb
-	NBA *nba
-	NFL nfl
-	NHL *nhl
-}
+type Sports []Sport
 
 type ScheduleState int
 
 const (
-	Preview  ScheduleState = 0
-	Live     ScheduleState = 1
-	Complete ScheduleState = 2
+	Preview      ScheduleState = 0
+	Live         ScheduleState = 1
+	Intermission ScheduleState = 2
+	Complete     ScheduleState = 3
 )
 
-type GameScheduleStatus struct {
+type ScheduledGame struct {
 	Id            string
 	StartTime     time.Time
 	ScheduleState ScheduleState // 0 for preview, 1 for live, 2 for ended
+	Details       map[string]interface{}
 }
 
 // params[] date
@@ -37,54 +34,42 @@ type Sport interface {
 	Schedule(params url.Values) map[string]interface{}
 	PlayByPlay(params url.Values) map[string]interface{}
 	ParseScheduleState(statusCode int) ScheduleState
+	DefaultTimeString() string
 }
 
 func InitializeSports() *Sports {
-	sports := Sports{
-		NHL: InitNHL(),
-		NBA: InitNBA(),
-	}
-
+	sports := Sports{InitNHL(), InitNBA()}
 	return &sports
 }
 
-func (s *Sports) RetrieveSportsAsList() [2]Sport {
-	return [2]Sport{s.NBA, s.NHL}
-}
-
 func (s *Sports) ParseSportId(sportId int) Sport {
-	switch sportId {
-	case 0:
-		//return s.MLB
-	case 1:
-		return s.NBA
-	case 2:
-		//return s.NFL
-	case 3:
-		return s.NHL
-	}
-	return nil
+	return (*s)[sportId]
 }
 
 func ParseSportString(sport string) int {
 	strings.ToLower(sport)
 	switch sport {
-	case "mlb":
-		//return s.MLB
+	case "nhl":
+		return 0
 	case "nba":
 		return 1
 	case "nfl":
-		//return s.NFL
-	case "nhl":
+		return 2
+	case "mlb":
 		return 3
 	}
 	return -1
 }
 
-func CheckActiveGames(sport Sport, schedule map[string]interface{}) []GameScheduleStatus {
-	scheduledGames := schedule["content"].([]map[string]interface{})
-	games := make([]GameScheduleStatus, 0, len(scheduledGames))
-	for _, scheduledGame := range scheduledGames {
+func CheckActiveGames(sport Sport, schedule map[string]interface{}) []ScheduledGame {
+	var scheduledGames []map[string]interface{}
+	if value, ok := schedule["content"].([]map[string]interface{}); ok {
+		scheduledGames = value
+	} else {
+		scheduledGames = make([]map[string]interface{}, 0)
+	}
+	games := make([]ScheduledGame, len(scheduledGames))
+	for i, scheduledGame := range scheduledGames {
 		status := sport.ParseScheduleState(scheduledGame["statusCode"].(int))
 		date, _ := CreateDateFromDetailedString(scheduledGame["date"].(string))
 		var gameId string
@@ -93,17 +78,16 @@ func CheckActiveGames(sport Sport, schedule map[string]interface{}) []GameSchedu
 		} else {
 			gameId = scheduledGame["id"].(string)
 		}
-		game := GameScheduleStatus{
-			gameId,
-			date,
-			status,
+		game := ScheduledGame{
+			Id:            gameId,
+			StartTime:     date,
+			ScheduleState: status,
+			Details:       scheduledGame,
 		}
-		games = append(games, game)
+		games[i] = game
 	}
 	return games
 }
-
-
 
 // CreateDetailedStringFromDate converts a time.Time object to a string representing a date with format `yyyy-mm-dd`.
 func CreateDetailedStringFromDate(date time.Time) string {

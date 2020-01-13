@@ -56,7 +56,7 @@ func (c *MongoCollection) InsertGameSnapshot(ctx context.Context, snapshot inter
 		log.Error(err.Error())
 		return
 	}
-	log.Debugf("Inserted Game Snapshot with ID: %s\n", result.InsertedID)
+	log.Debugf("Inserted Details Snapshot with ID: %s\n", result.InsertedID)
 }
 
 // WatchGame returns a cursor that points to a collection that will be updated when new snapshots are inserted.
