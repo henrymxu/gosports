@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const serverAddress = "127.0.0.1:8000"
+const serverAddress = "localhost:8080"
 const databaseAddress = "mongodb://localhost:27017"
 
 func main() {

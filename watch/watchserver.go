@@ -38,10 +38,8 @@ func (s *Server) GetGameChannel(sport sports.Sport, gameId string) *chan websock
 }
 
 func (s *Server) watchScheduleForGamesToWatch() {
-	s.parseScheduleForGamesToWatch() // Since ticker starts after the first delay
 	ticker := time.NewTicker(scheduleCheckDelay)
-	for {
-		<-ticker.C
+	for; true; <-ticker.C {
 		s.parseScheduleForGamesToWatch()
 	}
 }
